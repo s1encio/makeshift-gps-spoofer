@@ -12,6 +12,36 @@ except ImportError:
     tkintermapview = None
 
 PY = sys.executable
+
+# OpenStreetMap blocks the map widget's default "TkinterMapView" identity (403),
+# so every map/search request identifies this app by its own name instead.
+USER_AGENT = "iPhoneTeleport/1.1 (personal desktop app; github.com/s1encio)"
+try:
+    import requests
+    _orig_get = requests.get
+
+    def _get_with_agent(url, *args, **kwargs):
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers["User-Agent"] = USER_AGENT
+        return _orig_get(url, *args, headers=headers, **kwargs)
+
+    requests.get = _get_with_agent
+except ImportError:
+    pass
+
+TILE_SOURCES = {
+    "OpenStreetMap": (
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png", 19,
+        "Map: © OpenStreetMap contributors"),
+    "Esri streets (backup)": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/"
+        "MapServer/tile/{z}/{y}/{x}", 19,
+        "Map: © Esri and contributors"),
+    "Esri satellite": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/"
+        "MapServer/tile/{z}/{y}/{x}", 19,
+        "Imagery: © Esri, Maxar, Earthstar Geographics"),
+}
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -87,6 +117,18 @@ class App:
             self.map.set_position(47.3769, 8.5417)
             self.map.set_zoom(12)
             self.map.add_left_click_map_command(self.on_map_click)
+
+            bottom = ttk.Frame(root)
+            bottom.pack(fill="x", padx=8)
+            ttk.Label(bottom, text="Map style:").pack(side="left")
+            self.style_var = tk.StringVar(value=list(TILE_SOURCES)[0])
+            box = ttk.Combobox(bottom, textvariable=self.style_var, state="readonly",
+                               values=list(TILE_SOURCES), width=22)
+            box.pack(side="left", padx=4)
+            box.bind("<<ComboboxSelected>>", lambda e: self.apply_style())
+            self.attrib = ttk.Label(bottom, foreground="#777")
+            self.attrib.pack(side="right")
+            self.apply_style()
         else:
             self.map = None
             ttk.Label(root, text="Map not available (run install.bat). "
@@ -120,6 +162,11 @@ class App:
                 self.log(f"{prefix}{line}")
 
     # ---------- map ----------
+    def apply_style(self):
+        url, max_zoom, credit = TILE_SOURCES[self.style_var.get()]
+        self.map.set_tile_server(url, max_zoom=max_zoom)
+        self.attrib.config(text=credit)
+
     def on_map_click(self, coords):
         lat, lon = coords
         self.put_coords(lat, lon)
